@@ -1,0 +1,21 @@
+[project]
+name = "reaper-mcp"
+version = "0.1.0"
+description = "The best AI interface for REAPER. Script-runner first, socket IPC."
+requires-python = ">=3.10"
+dependencies = [
+    "mcp[cli]>=1.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+]
+
+[tool.setuptools.packages.find]
+include = ["server*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
