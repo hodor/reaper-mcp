@@ -3,12 +3,12 @@
 import logging
 from mcp.server.fastmcp import FastMCP
 
-from server.tools import scripting, transport, tracks, midi, api_search, analytics, setup
+from server.tools import scripting, transport, tracks, midi, api_search, analytics, setup, composers_assistant
 
 logger = logging.getLogger(__name__)
 
 mcp = FastMCP(
-    "reaper-mcp",
+    "reaper-ai-tools",
     instructions="""You are connected to REAPER DAW via MCP. You can:
 
 1. **Run Lua scripts** in REAPER using `run_lua`. You have full access to the reaper.* API.
@@ -40,5 +40,6 @@ midi.register(mcp)
 api_search.register(mcp)
 analytics.register(mcp)
 setup.register(mcp)
+composers_assistant.register(mcp)
 
-logger.info("reaper-mcp server initialized")
+logger.info("reaper-ai-tools server initialized")

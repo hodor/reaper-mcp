@@ -1,11 +1,14 @@
 [project]
-name = "reaper-mcp"
+name = "reaper-ai-tools"
 version = "0.1.0"
 description = "The best AI interface for REAPER. Script-runner first, socket IPC."
 requires-python = ">=3.10"
 dependencies = [
     "mcp[cli]>=1.0.0",
 ]
+
+[project.optional-dependencies]
+ai = ["torch", "transformers", "sentencepiece"]
 
 [dependency-groups]
 dev = [

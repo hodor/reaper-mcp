@@ -2,35 +2,48 @@
 
 ## Project Overview
 
-MCP server for REAPER DAW. Script-runner first: Claude writes Lua scripts, the MCP executes them in REAPER via TCP socket, and returns results with full error context (stack traces, line numbers, source context). 20 tools total — convenience tools for high-frequency actions, `run_lua` for everything else.
+MCP server for REAPER DAW (reaper-ai-tools). Script-runner first: Claude writes Lua scripts, the MCP executes them in REAPER via TCP socket, and returns results with full error context (stack traces, line numbers, source context). 22 tools total — convenience tools for high-frequency actions, `run_lua` for everything else. Includes vendored Composer's Assistant for AI-powered multi-track MIDI infilling.
 
 ## Architecture
 
 ```
 Claude (MCP client, stdio)
-  → Python server (FastMCP, 20 tools)
+  → Python server (FastMCP, 22 tools)
     → TCP socket (localhost:9500, newline-delimited JSON)
       → Lua bridge (REAPER defer loop, Mavriq LuaSocket, non-blocking)
         → reaper.* API
+
+Composer's Assistant (separate process):
+  → nn_server.py (T5 transformer, XML-RPC localhost:3456)
+    ← REAPER Python scripts call via XML-RPC for MIDI generation
 ```
 
 ### Key files
 - **server/app.py** — FastMCP entry point, registers all tool modules, contains system instructions
 - **server/__main__.py** — `python -m server` entry point
 - **server/connection.py** — `ReaperConnection` async TCP client. Singleton via `get_connection()`. Handles connect, reconnect, request/response, ping.
-- **server/tools/** — 6 tool modules, each exports `register(mcp)`:
+- **server/tools/** — 8 tool modules, each exports `register(mcp)`:
   - `scripting.py` — `run_lua`, `get_project_state` (the core)
   - `transport.py` — play, stop, record, set_tempo, get_tempo
   - `tracks.py` — list_tracks, create_track, delete_track, set_volume, set_pan, mute/unmute, solo/unsolo
   - `midi.py` — insert_midi, read_midi
   - `api_search.py` — search_api, list_available_api
   - `analytics.py` — get_script_history, get_common_scripts
+  - `setup.py` — manage_startup
+  - `composers_assistant.py` — setup_composers_assistant, composers_assistant_server
 - **server/script_tracker.py** — `ScriptTracker` SQLite logger. Hash-based dedup, run counts, timing, error rates. Singleton via `get_tracker()`. DB at `~/.reaper-mcp/scripts.db`.
 - **server/api_index.py** — `APIIndex` parses `reascripthelp.html` into SQLite FTS5 index. 713 functions. Singleton via `get_api_index()`. DB at `~/.reaper-mcp/api_index.db`.
 - **server/helpers.py** — `db_to_linear`, `linear_to_db`, `parse_volume`, `parse_pan`, `resolve_track_ref`
 - **lua/bridge.lua** — REAPER-side TCP server. Non-blocking socket in `reaper.defer()` loop. Commands: `exec` (run Lua with full error capture), `ping`, `state` (project dump), `list_api` (runtime function discovery).
 - **lua/install.lua** — Run in REAPER to check if LuaSocket is installed
 - **data/reascripthelp.html** — Bundled ReaScript API docs (713 functions)
+
+### Composer's Assistant (vendored)
+- **composers_assistant/** — Vendored from [m-malandro/composers-assistant-REAPER](https://github.com/m-malandro/composers-assistant-REAPER) (MIT license)
+  - `scripts/` — Python scripts: nn_server, 3 REAPER action scripts, encoding/tokenizer/training modules
+  - `effects/` — JSFX plugins: CAv2 Global Options, CAv2 Track Options
+  - `models/` — .gitignore'd — user downloads model weights from GitHub releases
+  - `LICENSE`, `README.md` — upstream license and docs
 
 ## Commands
 
@@ -43,6 +56,9 @@ uv run pytest tests/ -v
 
 # Install / reinstall
 uv pip install -e "."
+
+# Install with AI deps (for Composer's Assistant nn_server)
+uv pip install -e ".[ai]"
 ```
 
 ## Environment variables
@@ -79,6 +95,13 @@ Convenience tools (volume, pan, etc.) don't use a separate protocol — they gen
 - Volume: `-6`, `"-6dB"`, `"+3dB"` (relative), `0.5` (linear), `{"db": -6}`, `{"relative_db": 3}`
 - Pan: `"L50"`, `"R30"`, `"C"`, `-1.0` to `1.0`
 
+### Composer's Assistant workflow
+1. `setup_composers_assistant(action="install")` — copies scripts/effects to REAPER resource path, registers actions
+2. `composers_assistant_server(action="start")` — launches nn_server subprocess (loads T5 model)
+3. User adds JSFX effects to tracks, selects MIDI items + time selection, runs action script
+4. The action script reads MIDI, encodes it, calls nn_server via XML-RPC, writes output back
+5. Model paths in `constants.py` resolve relative to `composers_assistant/models/` via `Path(__file__)`
+
 ## Testing
 
 ```bash
@@ -97,6 +120,7 @@ uv run pytest tests/test_script_tracker.py -v  # Just tracker
 1. Install Mavriq LuaSocket: run `lua/install.lua` in REAPER for instructions
 2. Load `lua/bridge.lua` as a REAPER script (Actions > Load script)
 3. The bridge prints startup banner to REAPER console and listens on port 9500
+4. For Composer's Assistant: use `setup_composers_assistant(action="install")` MCP tool
 
 ## Protocol
 

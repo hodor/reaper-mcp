@@ -5,3 +5,6 @@ __pycache__/
 .pytest_cache/
 *.db
 .claude/
+
+# Composer's Assistant model weights (download from GitHub releases)
+composers_assistant/models/
