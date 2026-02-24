@@ -130,15 +130,33 @@ class ReaperConnection:
             return False
 
     async def execute(self, code: str, undo_label: Optional[str] = None,
-                      timeout: Optional[float] = None) -> dict:
+                      timeout_ms: Optional[int] = None) -> dict:
         """Execute a Lua script in REAPER.
+
+        Args:
+            code: Lua source code to execute
+            undo_label: Label for the undo history entry
+            timeout_ms: Lua-side script timeout in milliseconds (default: 10000).
+                Passed to the Lua bridge for debug.sethook-based timeout protection.
+                Python socket timeout is set to this + 30s buffer for dialog interaction.
 
         Returns dict with: success, result, stdout, error, elapsed_ms
         """
         params = {"code": code}
         if undo_label:
             params["undo_label"] = undo_label
-        return await self.request("exec", params, timeout=timeout or REQUEST_TIMEOUT)
+        if timeout_ms is not None:
+            params["timeout_ms"] = timeout_ms
+
+        # Socket timeout = script timeout + 30s buffer for user dialog interaction
+        script_timeout_sec = (timeout_ms or 120000) / 1000.0
+        socket_timeout = script_timeout_sec + 30.0
+
+        return await self.request("exec", params, timeout=socket_timeout)
+
+    async def startup(self, action: str = "status") -> dict:
+        """Manage REAPER startup configuration for the MCP bridge."""
+        return await self.request("startup", {"action": action})
 
     async def get_state(self) -> dict:
         """Get full project state from REAPER."""

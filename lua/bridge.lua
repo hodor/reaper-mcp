@@ -246,8 +246,10 @@ end
 -- Script execution engine
 -- ============================================================================
 
-local function execute_script(code, undo_label)
+local function execute_script(code, undo_label, timeout_ms)
     undo_label = undo_label or "AI Script"
+    timeout_ms = timeout_ms or 120000
+    local timeout_sec = timeout_ms / 1000.0
 
     -- Capture stdout
     local output = {}
@@ -299,9 +301,33 @@ local function execute_script(code, undo_label)
         }
     end
 
+    -- Set up timeout hook using debug.sethook
+    local hook_start = reaper.time_precise()
+    local hook_deadline = hook_start + timeout_sec
+
+    local function timeout_hook()
+        local now = reaper.time_precise()
+        if now >= hook_deadline then
+            local elapsed_sec = now - hook_start
+            local result = reaper.MB(
+                string.format("Script has been running for %.1f seconds. Kill it?", elapsed_sec),
+                "Script Timeout", 4)  -- 4 = Yes/No
+            if result == 6 then  -- 6 = Yes
+                debug.sethook()  -- clear hook before erroring
+                error("Script timed out after " .. string.format("%.1f", elapsed_sec) .. " seconds")
+            else
+                -- User chose No — reset deadline and continue
+                hook_deadline = reaper.time_precise() + timeout_sec
+            end
+        end
+    end
+
     -- Execute with undo block
     reaper.Undo_BeginBlock()
     reaper.PreventUIRefresh(1)
+
+    -- Install hook: check every ~1M instructions
+    debug.sethook(timeout_hook, "", 1000000)
 
     local start_time = reaper.time_precise()
     local ok, err_or_result = xpcall(chunk, function(e)
@@ -311,6 +337,9 @@ local function execute_script(code, undo_label)
         }
     end)
     local elapsed = (reaper.time_precise() - start_time) * 1000
+
+    -- Always clear the hook
+    debug.sethook()
 
     reaper.PreventUIRefresh(-1)
     reaper.Undo_EndBlock(undo_label, -1)
@@ -364,11 +393,113 @@ end
 local commands = {}
 
 function commands.exec(params)
-    return execute_script(params.code, params.undo_label)
+    return execute_script(params.code, params.undo_label, params.timeout_ms)
 end
 
 function commands.ping()
     return { pong = true, time = reaper.time_precise() }
+end
+
+function commands.startup(params)
+    local action = params and params.action or "status"
+    local resource = reaper.GetResourcePath()
+    local sep = package.config:sub(1, 1)
+    local scripts_dir = resource .. sep .. "Scripts"
+    local startup_path = scripts_dir .. sep .. "__startup.lua"
+    local bridge_path = script_dir .. "bridge.lua"
+    local escaped = bridge_path:gsub("\\", "\\\\")
+    local marker = "-- reaper-mcp bridge"
+    local dofile_line = 'dofile("' .. escaped .. '")  ' .. marker
+
+    -- Read existing file content (nil if doesn't exist)
+    local function read_file()
+        local f = io.open(startup_path, "r")
+        if not f then return nil end
+        local content = f:read("*a")
+        f:close()
+        return content
+    end
+
+    -- Check if our line is already present
+    local function has_bridge_line(content)
+        return content and content:find(marker, 1, true) ~= nil
+    end
+
+    if action == "status" then
+        local content = read_file()
+        return {
+            enabled = has_bridge_line(content),
+            startup_path = startup_path,
+            bridge_path = bridge_path,
+            content = content
+        }
+    elseif action == "enable" then
+        local content = read_file()
+        if has_bridge_line(content) then
+            return {
+                enabled = true,
+                startup_path = startup_path,
+                bridge_path = bridge_path,
+                content = content,
+                message = "Already enabled"
+            }
+        end
+        -- Append our line to existing content (or create new file)
+        local f, err = io.open(startup_path, "a")
+        if not f then
+            error("Cannot write startup file: " .. tostring(err))
+        end
+        if content and #content > 0 and not content:match("\n$") then
+            f:write("\n")
+        end
+        f:write(dofile_line .. "\n")
+        f:close()
+        return {
+            enabled = true,
+            startup_path = startup_path,
+            bridge_path = bridge_path,
+            content = read_file()
+        }
+    elseif action == "disable" then
+        local content = read_file()
+        if not content then
+            return {
+                enabled = false,
+                startup_path = startup_path,
+                bridge_path = bridge_path
+            }
+        end
+        -- Remove only our line(s), preserve everything else
+        local lines = {}
+        for line in (content .. "\n"):gmatch("(.-)\n") do
+            if not line:find(marker, 1, true) then
+                table.insert(lines, line)
+            end
+        end
+        local new_content = table.concat(lines, "\n")
+        -- Trim trailing whitespace
+        new_content = new_content:gsub("%s+$", "")
+        if #new_content > 0 then
+            -- Other content remains — write it back
+            local f, err = io.open(startup_path, "w")
+            if not f then
+                error("Cannot write startup file: " .. tostring(err))
+            end
+            f:write(new_content .. "\n")
+            f:close()
+        else
+            -- File would be empty — just delete it
+            os.remove(startup_path)
+        end
+        return {
+            enabled = false,
+            startup_path = startup_path,
+            bridge_path = bridge_path,
+            content = read_file()
+        }
+    else
+        error("Unknown startup action: " .. tostring(action) .. ". Use 'status', 'enable', or 'disable'.")
+    end
 end
 
 function commands.state()

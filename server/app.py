@@ -3,7 +3,7 @@
 import logging
 from mcp.server.fastmcp import FastMCP
 
-from server.tools import scripting, transport, tracks, midi, api_search, analytics
+from server.tools import scripting, transport, tracks, midi, api_search, analytics, setup
 
 logger = logging.getLogger(__name__)
 
@@ -39,5 +39,6 @@ tracks.register(mcp)
 midi.register(mcp)
 api_search.register(mcp)
 analytics.register(mcp)
+setup.register(mcp)
 
 logger.info("reaper-mcp server initialized")

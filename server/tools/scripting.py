@@ -9,7 +9,7 @@ def register(mcp: FastMCP):
 
     @mcp.tool()
     async def run_lua(code: str, undo_label: str = "AI Script",
-                      timeout_ms: int = 10000) -> str:
+                      timeout_ms: int = 120000) -> str:
         """Execute Lua code inside REAPER and return the result.
 
         The script runs in REAPER's Lua environment with full access to the
@@ -23,7 +23,7 @@ def register(mcp: FastMCP):
         Args:
             code: Lua source code to execute
             undo_label: Label for the undo history entry (default: "AI Script")
-            timeout_ms: Maximum execution time in milliseconds (default: 10000)
+            timeout_ms: Maximum execution time in milliseconds (default: 120000)
         """
         tracker = get_tracker()
         conn = get_connection()
@@ -32,7 +32,7 @@ def register(mcp: FastMCP):
             result = await conn.execute(
                 code,
                 undo_label=undo_label,
-                timeout=timeout_ms / 1000.0
+                timeout_ms=timeout_ms
             )
         except ConnectionError as e:
             return f"Connection error: {e}"
