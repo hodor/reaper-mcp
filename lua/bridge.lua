@@ -137,9 +137,15 @@ function json.decode(str)
                     if code then
                         if code < 128 then
                             table.insert(parts, string.char(code))
-                        else
+                        elseif code < 2048 then
                             table.insert(parts, string.char(
                                 0xC0 + math.floor(code / 64),
+                                0x80 + (code % 64)
+                            ))
+                        else
+                            table.insert(parts, string.char(
+                                0xE0 + math.floor(code / 4096),
+                                0x80 + math.floor((code % 4096) / 64),
                                 0x80 + (code % 64)
                             ))
                         end
@@ -733,15 +739,38 @@ end
 -- Startup
 -- ============================================================================
 
+local MAX_BIND_RETRIES = 10
+local bind_attempt = 0
+
 local function main()
     reaper.ShowConsoleMsg("\n")
     reaper.ShowConsoleMsg("===========================================\n")
     reaper.ShowConsoleMsg("  reaper-mcp bridge v0.1.0\n")
     reaper.ShowConsoleMsg("===========================================\n")
 
-    if start_server() then
-        poll()
+    local function try_start()
+        bind_attempt = bind_attempt + 1
+        if start_server() then
+            poll()
+        elseif bind_attempt < MAX_BIND_RETRIES then
+            reaper.ShowConsoleMsg("[reaper-mcp] Retrying in ~1s (" .. bind_attempt .. "/" .. MAX_BIND_RETRIES .. ")...\n")
+            -- defer runs ~30 times/sec, so 30 defers ≈ 1 second
+            local countdown = 30
+            local function wait_and_retry()
+                countdown = countdown - 1
+                if countdown > 0 then
+                    reaper.defer(wait_and_retry)
+                else
+                    try_start()
+                end
+            end
+            reaper.defer(wait_and_retry)
+        else
+            reaper.ShowConsoleMsg("[reaper-mcp] Giving up after " .. MAX_BIND_RETRIES .. " attempts.\n")
+        end
     end
+
+    try_start()
 end
 
 main()
