@@ -90,7 +90,7 @@ def register(mcp: FastMCP):
                 """, undo_label="Delete track")
             else:
                 result = await conn.execute(f"""
-                    local target = {repr(track)}:lower()
+                    local target = ({repr(track)}):lower()
                     for i = 0, reaper.CountTracks(0) - 1 do
                         local tr = reaper.GetTrack(0, i)
                         local _, name = reaper.GetTrackName(tr)
@@ -100,7 +100,7 @@ def register(mcp: FastMCP):
                             return
                         end
                     end
-                    print("ERROR: No track found matching '" .. {repr(track)} .. "'")
+                    print("ERROR: No track found matching '" .. ({repr(track)}) .. "'")
                 """, undo_label=f"Delete track: {track}")
 
             if result.get("success"):
